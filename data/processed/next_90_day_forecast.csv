@@ -1,0 +1,9 @@
+product_category,forecast_units_30d,forecast_units_60d,forecast_units_90d
+Apparel,23429.0,45046.0,64704.0
+Beauty,18996.0,36541.0,51439.0
+Books,9357.0,17943.0,26384.0
+Electronics,26812.0,51080.0,71342.0
+Groceries,54224.0,107319.0,156739.0
+Home & Garden,10954.0,25280.0,42800.0
+Sporting Goods,13840.0,27018.0,38127.0
+Toys,11302.0,20283.0,26313.0

@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: stg_sales_events
+    description: "Cleaned raw sales events, deduplicated to one row per (event_date, product_category, store_region)."
+    tests:
+      - unique_combination_of_columns:
+          combination_of_columns: [event_date, product_category, store_region]
+    columns:
+      - name: event_date
+        tests:
+          - not_null
+      - name: product_category
+        tests:
+          - not_null
+      - name: store_region
+        tests:
+          - not_null
+      - name: units_sold
+        tests:
+          - not_null
+
+  - name: stg_sales_rollups
+    description: "Cleaned Spark-computed rolling aggregations."
+    tests:
+      - unique_combination_of_columns:
+          combination_of_columns: [event_date, product_category]
+    columns:
+      - name: event_date
+        tests:
+          - not_null
+      - name: product_category
+        tests:
+          - not_null

@@ -1,0 +1,45 @@
+Executive Summary:
+
+As we approach the midpoint of 2026, our demand planning team has completed a thorough analysis of sales demand forecasts for the next 90 days. We have also evaluated the performance of our in-house models, including Prophet, LightGBM, and a Seasonal Naive baseline. Our results indicate that while no single model clearly outperforms the others, we have identified key strengths and weaknesses in each model.
+
+Forecast for the Next 90 Days:
+
+Our forecast for the next 90 days, from 2026-01-01 to 2026-03-31, is based on the Prophet model, which has been our pipeline's choice for forward forecasts. Our forecast indicates the following average units per day:
+
+- Electronics: 792.7/day
+- Beauty: 571.5/day
+- Apparel: 718.9/day
+- Sporting Goods: 423.6/day
+- Home & Garden: 475.6/day
+- Books: 293.2/day
+- Groceries: 1741.5/day
+- Toys: 292.4/day
+
+Recent Demand Trend (Year over Year):
+
+Historically, our sales data shows a growing trend in the following categories:
+
+- Electronics (+16.7% year-over-year)
+- Beauty (+13.9% year-over-year)
+- Apparel (+10.2% year-over-year)
+- Sporting Goods (+6.5% year-over-year)
+- Home & Garden (+5.0% year-over-year)
+- Toys (+3.8% year-over-year)
+- Groceries (+2.4% year-over-year)
+- Books (+1.7% year-over-year)
+
+Model Performance & Recommendation:
+
+Our model performance analysis shows that:
+
+- Seasonal Naive has the lowest mean holdout MAPE (12.37%), making it a strong baseline for comparison.
+- Prophet has a mean holdout MAPE of 12.40%, which is only slightly higher than Seasonal Naive.
+- LightGBM has a mean holdout MAPE of 14.90%, which is significantly higher than the other two models.
+- No model clearly outperforms the others, and we recommend keeping Prophet for forward forecasts for now.
+- We will continue to monitor the performance of our models and consider updates or changes as necessary.
+
+Action Items:
+
+- Continue to use Prophet for forward forecasts, with Seasonal Naive as the benchmark for comparison.
+- Monitor the performance of LightGBM and consider updates or changes as necessary.
+- Review our sales data and adjust our forecasting models as needed to reflect changing market trends and customer behavior.

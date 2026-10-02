@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: dim_product_category
+    description: "Category dimension with a qualitative seasonality profile."
+    columns:
+      - name: category_id
+        tests:
+          - unique
+          - not_null
+      - name: product_category
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_daily_sales
+    description: "Star-schema fact table: one row per category per day."
+    tests:
+      - unique_combination_of_columns:
+          combination_of_columns: [event_date, product_category]
+    columns:
+      - name: category_id
+        tests:
+          - not_null
+      - name: event_date
+        tests:
+          - not_null
+      - name: units_sold
+        tests:
+          - not_null
+
+  - name: mart_category_daily_sales
+    description: "Forecast-ready mart, one row per category per day (ds/y naming for Prophet)."
+    tests:
+      - unique_combination_of_columns:
+          combination_of_columns: [ds, product_category]
+    columns:
+      - name: ds
+        tests:
+          - not_null
+      - name: product_category
+        tests:
+          - not_null
+      - name: y
+        tests:
+          - not_null

@@ -1,0 +1,25 @@
+.env
+__pycache__/
+*.pyc
+airflow/logs/
+dbt/sales_dbt/target/
+dbt/sales_dbt/dbt_packages/
+kafka/.producer_state.json
+outputs/*.pdf
+outputs/*.png
+outputs/forecast_plots/*.png
+*.egg-info/
+.ipynb_checkpoints/
+
+# Added before publishing (2026-10-02)
+.env
+.env.*
+!.env.example
+dbt/*/logs/
+dbt/*/target/
+dbt/*/dbt_packages/
+airflow/logs/
+logs/
+tableau/~*
+*.bak*
+__pycache__/

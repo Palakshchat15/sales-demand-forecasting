@@ -1,0 +1,25 @@
+product_category,model,mape,rmse
+Apparel,Prophet,12.6,273.3
+Beauty,Prophet,10.9,181.6
+Books,Prophet,11.67,99.1
+Electronics,Prophet,11.09,272.4
+Groceries,Prophet,9.72,490.4
+Home & Garden,Prophet,15.55,87.9
+Sporting Goods,Prophet,11.87,122.8
+Toys,Prophet,15.77,123.2
+Apparel,LightGBM,16.33,318.5
+Beauty,LightGBM,12.81,193.0
+Books,LightGBM,15.25,117.3
+Electronics,LightGBM,15.9,332.8
+Groceries,LightGBM,12.55,530.7
+Home & Garden,LightGBM,14.63,85.9
+Sporting Goods,LightGBM,15.67,137.5
+Toys,LightGBM,16.08,127.2
+Apparel,Seasonal Naive,13.47,218.5
+Beauty,Seasonal Naive,11.78,129.8
+Books,Seasonal Naive,10.87,60.0
+Electronics,Seasonal Naive,12.59,196.6
+Groceries,Seasonal Naive,7.94,291.0
+Home & Garden,Seasonal Naive,14.29,66.5
+Sporting Goods,Seasonal Naive,11.97,91.4
+Toys,Seasonal Naive,16.01,120.3

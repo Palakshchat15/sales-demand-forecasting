@@ -1,0 +1,97 @@
+product_category,month,seasonal_index
+Apparel,Jan,81
+Apparel,Feb,73
+Apparel,Mar,71
+Apparel,Apr,73
+Apparel,May,83
+Apparel,Jun,94
+Apparel,Jul,107
+Apparel,Aug,149
+Apparel,Sep,122
+Apparel,Oct,120
+Apparel,Nov,122
+Apparel,Dec,105
+Beauty,Jan,113
+Beauty,Feb,103
+Beauty,Mar,91
+Beauty,Apr,77
+Beauty,May,70
+Beauty,Jun,70
+Beauty,Jul,75
+Beauty,Aug,95
+Beauty,Sep,104
+Beauty,Oct,118
+Beauty,Nov,142
+Beauty,Dec,142
+Books,Jan,84
+Books,Feb,77
+Books,Mar,77
+Books,Apr,81
+Books,May,88
+Books,Jun,99
+Books,Jul,109
+Books,Aug,145
+Books,Sep,116
+Books,Oct,110
+Books,Nov,112
+Books,Dec,101
+Electronics,Jan,108
+Electronics,Feb,96
+Electronics,Mar,84
+Electronics,Apr,68
+Electronics,May,62
+Electronics,Jun,64
+Electronics,Jul,74
+Electronics,Aug,117
+Electronics,Sep,110
+Electronics,Oct,127
+Electronics,Nov,147
+Electronics,Dec,143
+Groceries,Jan,105
+Groceries,Feb,102
+Groceries,Mar,99
+Groceries,Apr,93
+Groceries,May,90
+Groceries,Jun,89
+Groceries,Jul,91
+Groceries,Aug,98
+Groceries,Sep,98
+Groceries,Oct,102
+Groceries,Nov,116
+Groceries,Dec,117
+Home & Garden,Jan,74
+Home & Garden,Feb,94
+Home & Garden,Mar,120
+Home & Garden,Apr,131
+Home & Garden,May,143
+Home & Garden,Jun,139
+Home & Garden,Jul,125
+Home & Garden,Aug,105
+Home & Garden,Sep,80
+Home & Garden,Oct,63
+Home & Garden,Nov,61
+Home & Garden,Dec,65
+Sporting Goods,Jan,131
+Sporting Goods,Feb,123
+Sporting Goods,Mar,107
+Sporting Goods,Apr,87
+Sporting Goods,May,72
+Sporting Goods,Jun,62
+Sporting Goods,Jul,60
+Sporting Goods,Aug,73
+Sporting Goods,Sep,89
+Sporting Goods,Oct,109
+Sporting Goods,Nov,139
+Sporting Goods,Dec,149
+Toys,Jan,162
+Toys,Feb,127
+Toys,Mar,89
+Toys,Apr,48
+Toys,May,19
+Toys,Jun,11
+Toys,Jul,25
+Toys,Aug,64
+Toys,Sep,105
+Toys,Oct,151
+Toys,Nov,192
+Toys,Dec,207

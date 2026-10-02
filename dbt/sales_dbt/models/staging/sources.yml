@@ -1,0 +1,24 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: sales_events
+        description: "Raw sales events written by the Kafka consumer."
+        columns:
+          - name: event_date
+            tests:
+              - not_null
+          - name: product_category
+            tests:
+              - not_null
+          - name: units_sold
+            tests:
+              - not_null
+
+  - name: staging_src
+    schema: staging
+    tables:
+      - name: sales_rollups
+        description: "Daily/category rolling aggregations computed by the Spark job."

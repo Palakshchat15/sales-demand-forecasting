@@ -1,0 +1,25 @@
+product_category,model,mape
+Apparel,Prophet,12.6
+Beauty,Prophet,10.9
+Books,Prophet,11.7
+Electronics,Prophet,11.1
+Groceries,Prophet,9.7
+Home & Garden,Prophet,15.6
+Sporting Goods,Prophet,11.9
+Toys,Prophet,15.8
+Apparel,LightGBM,16.3
+Beauty,LightGBM,12.8
+Books,LightGBM,15.2
+Electronics,LightGBM,15.9
+Groceries,LightGBM,12.6
+Home & Garden,LightGBM,14.6
+Sporting Goods,LightGBM,15.7
+Toys,LightGBM,16.1
+Apparel,Naive,13.5
+Beauty,Naive,11.8
+Books,Naive,10.9
+Electronics,Naive,12.6
+Groceries,Naive,7.9
+Home & Garden,Naive,14.3
+Sporting Goods,Naive,12.0
+Toys,Naive,16.0

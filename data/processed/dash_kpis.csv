@@ -1,0 +1,2 @@
+total_revenue,units_sold,q4_yoy,forecast_90d,forecast_growth,mape_seasonal_naive,mape_prophet,mape_lightgbm
+$249.1M,5.26M,+7.6%,"477,848",+7.3%,12.37%,12.40%,14.90%
