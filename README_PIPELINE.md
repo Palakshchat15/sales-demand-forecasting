@@ -641,3 +641,44 @@ Seasonal Naive (new) 146.8. Per-category before → after:
   section 6 and in the report.
 - Prophet's uncertainty intervals were not reproducible (it samples from
   numpy's global RNG); `np.random.seed(42)` before each `predict()` fixed that.
+
+## 13. Experiment tracking (MLflow)
+
+Added 2026-10-17, **run on 2026-10-18** (Docker Desktop, 4 GB cap). Logging only: the models,
+seeds, data and every output and number above are unchanged.
+
+- **Server:** the `mlflow` service in `docker-compose.yml` (official image
+  `ghcr.io/mlflow/mlflow:v2.16.2`, SQLite metadata and artifacts on the `mlflow_data` volume,
+  one worker, 512 MB cap). UI: http://localhost:5003.
+- **`forecast_prophet.py`** logs a run `prophet_forecast` (experiment
+  `sales_demand_forecasting`) after it has written its outputs: the Prophet settings, each
+  category's chosen `changepoint_prior_scale`, holdout MAPE/RMSE, CV MAPE per grid value and the
+  mean MAPE; `prophet_holdout_metrics.csv`, `prophet_tuning.csv`, `forecast_plots/` and
+  `forecast_vs_actual.csv` as artifacts; each category's refit model, registered as
+  **`sales-prophet-<category>`** (one registered model per category, a new version per run).
+- **`forecast_compare.py`** logs a run `comparison_forecast` in the same experiment: all three
+  models' per-category MAPE/RMSE and mean MAPE, `model_comparison.csv`, the LightGBM settings and
+  the per-category LightGBM models (logged, not registered), tagged with the `winner`.
+- **Tags on both runs:** `airflow_run_id` (the DAG run) and `data_version` (mart rows, date
+  range, number of categories). A fresh database's run 1 stops at `prophet_forecast` (see
+  section 4), so the first MLflow runs appear with DAG run 2.
+- **Guarded:** if `MLFLOW_TRACKING_URI` is unset or the server does not answer, the task prints
+  `WARNING [mlflow]: ...` and finishes normally.
+
+```bash
+docker compose build                   # adds mlflow 2.16.2 to the Airflow image
+docker compose up -d mlflow            # with the other services as in section 4
+curl http://localhost:5003/health      # OK
+docker compose exec airflow-webserver airflow dags trigger sales_pipeline_dag
+```
+
+| Check | Result |
+|---|---|
+| DAG run `mlflow_upgrade_20261018_015101` | success: all 11 tasks succeeded (about 3.3 min) |
+| `prophet_forecast` and `comparison_forecast` runs, same `airflow_run_id` | yes: both FINISHED in experiment `sales_demand_forecasting`, both tagged `airflow_run_id` = `mlflow_upgrade_20261018_015101` and `data_version` (8,768 mart rows, 2023-01-01 .. 2025-12-31, 8 categories); `comparison_forecast` tagged `winner` = `seasonal_naive` |
+| Prophet `mean_mape` logged | yes: 12.40 (`prophet_forecast`: `mean_mape` 12.3969, `mean_rmse` 206.35, 58 metrics); `comparison_forecast`: Seasonal Naive 12.37, Prophet 12.40, LightGBM 14.90, the same as `model_comparison.csv` |
+| `sales-prophet-<category>` versions registered | yes: version 1 of all 8 (`apparel`, `beauty`, `books`, `electronics`, `groceries`, `home-and-garden`, `sporting-goods`, `toys`), status READY |
+| Outputs byte-identical to the run before MLflow | forecasts and metrics yes: `model_comparison.csv`, `prophet_holdout_metrics.csv` and `prophet_tuning.csv` have the same sha256 as the pre-upgrade backup. The only changed file is `demand_planning_report.txt`, the LLM-written report (temperature 0.4, so its wording varies per run) |
+| Peak memory of the `mlflow` container | not measured (the 2026-10-18 run did not record container memory) |
+
+Details, risks and the exact verification steps: `UPGRADE_NOTES.md`.

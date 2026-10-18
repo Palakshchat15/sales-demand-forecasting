@@ -46,3 +46,9 @@ pyspark==3.5.1
 # Dashboards: Excel workbook + Tableau .twbx (.hyper extracts; Tableau Public only opens extract-based workbooks)
 openpyxl==3.1.2
 tableauhyperapi==0.0.26700
+
+# Experiment tracking client (logging only); same version as the ghcr.io/mlflow/mlflow server
+# image in docker-compose.yml. Its bounds (sqlalchemy<3, protobuf<6, packaging<25, Flask<4,
+# alembic<2, gunicorn<24, pyarrow<18, docker<8, numpy/pandas<3) all admit Airflow 2.9.3's
+# constraint versions and the pins above. See UPGRADE_NOTES.md.
+mlflow==2.16.2

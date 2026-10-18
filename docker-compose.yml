@@ -23,6 +23,9 @@ x-airflow-common: &airflow-common
     OPENAI_API_KEY: ${OPENAI_API_KEY}
     OLLAMA_MODEL: ${OLLAMA_MODEL}
     OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+    # Optional experiment tracking (logging only): the training script logs here after it has
+    # written its outputs, and only warns if the mlflow service is stopped or unreachable.
+    MLFLOW_TRACKING_URI: http://mlflow:5000
     # Host path of data/processed, recorded in the Tableau workbook as the source for "Refresh Extract"
     TABLEAU_DATA_DIR: ${HOST_PROJECT_DIR}/data/processed
   volumes:
@@ -143,6 +146,28 @@ services:
       - ./spark:/opt/spark_jobs
       - ./spark/jars:/opt/spark/extra-jars
 
+  # MLflow tracking server + model registry (logging only; UI http://localhost:5003).
+  # SQLite metadata store and artifact store both on the mlflow_data volume; clients upload
+  # artifacts through the server (--artifacts-destination), so no shared folder is needed.
+  # One gunicorn worker and a 512 MB cap keep it small.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.2
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000 --workers 1
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+    ports:
+      - "5003:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
   airflow-init:
     <<: *airflow-common
     depends_on:
@@ -178,3 +203,4 @@ services:
 
 volumes:
   pg_data:
+  mlflow_data:

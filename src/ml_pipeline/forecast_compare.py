@@ -20,9 +20,15 @@ forecast_prophet.py (train on everything up to the cutoff, forecast the next
 Writes outputs/model_comparison.csv with all three models' holdout MAPE/RMSE
 (Prophet's come from outputs/prophet_holdout_metrics.csv). The overall winner
 is the model with the lowest simple (unweighted) mean of per-category MAPE.
+
+Optional MLflow tracking (log_to_mlflow, after model_comparison.csv is written; logging
+only): all three models' metrics, the CSV and the LightGBM models, in the same experiment as
+the Prophet run. Skipped with a warning if MLFLOW_TRACKING_URI is unset or the server is
+unreachable.
 """
 
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -38,6 +44,8 @@ LEVEL_WINDOW = 28
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "..", ".."))
 OUTPUTS_DIR = os.path.join(_PROJECT_ROOT, "outputs")
+# Fitted LightGBM comparison model per category; read only by log_to_mlflow().
+FITTED_MODELS = {}
 
 
 def mape(actual, pred):
@@ -125,6 +133,7 @@ def run_lightgbm(cat_df, category):
         verbosity=-1,
     )
     model.fit(train[FEATURE_COLS], train["target_ratio"])
+    FITTED_MODELS[category] = model  # kept only for the optional MLflow logging after main()
     preds = np.clip(model.predict(test[FEATURE_COLS]) * test["level"].to_numpy(), 0, None)
     return {"product_category": category, "model": "lightgbm",
             "mape": mape(test["y"], preds), "rmse": rmse(test["y"], preds)}
@@ -190,6 +199,57 @@ def main():
     print(summary.round(2))
     print(f"\nOverall winner (lowest mean MAPE): {summary.index[0]}")
 
+    # For the optional MLflow logging below (read-only; nothing above depends on it)
+    return {"winner": str(summary.index[0]), "rows": int(len(df)), "first_ds": str(df["ds"].min().date()),
+            "last_ds": str(df["ds"].max().date()), "categories": categories}
+
+
+# ---------- Optional MLflow experiment tracking (logging only) ----------
+EXPERIMENT_NAME = "sales_demand_forecasting"
+
+
+def log_to_mlflow(run_info):
+    """Runs after main() has written model_comparison.csv: logs the comparison settings, every
+    model's per-category holdout MAPE/RMSE and mean MAPE, the CSV, and each category's LightGBM
+    comparison model (logged, not registered: Prophet is the registered forecasting model).
+    Guarded in mlflow_tracking: no server -> warning."""
+    from mlflow_tracking import log_run, safe_key
+
+    comparison = pd.read_csv(os.path.join(OUTPUTS_DIR, "model_comparison.csv"))
+    metrics = {safe_key(f"{m}.mean_mape"): float(v) for m, v in comparison.groupby("model")["mape"].mean().items()}
+    for _, r in comparison.iterrows():
+        metrics[safe_key(f"{r['model']}.{r['product_category']}.mape")] = float(r["mape"])
+        metrics[safe_key(f"{r['model']}.{r['product_category']}.rmse")] = float(r["rmse"])
+    params = {"holdout_days": HOLDOUT_DAYS, "min_lag": MIN_LAG, "season_lag": SEASON_LAG,
+              "level_window": LEVEL_WINDOW, "lightgbm_features": ",".join(FEATURE_COLS),
+              "lightgbm_target": "y / 28-day level ending 90 days earlier",
+              "winner_rule": "lowest simple mean of per-category MAPE"}
+    if FITTED_MODELS:
+        any_model = next(iter(FITTED_MODELS.values()))
+        params.update({f"lgb_{k}": v for k, v in any_model.get_params().items() if v is not None})
+    data_version = (f"warehouse.mart_category_daily_sales: {run_info['rows']} rows, "
+                    f"{run_info['first_ds']} .. {run_info['last_ds']}, {len(run_info['categories'])} categories")
+
+    def log_model(mlflow):
+        import mlflow.lightgbm
+        for category, model in FITTED_MODELS.items():
+            slug = re.sub(r"[^0-9a-z]+", "-", category.lower().replace("&", "and")).strip("-")
+            mlflow.lightgbm.log_model(model, artifact_path=f"lightgbm_{slug}",
+                                      pip_requirements=[f"lightgbm=={lgb.__version__}"])
+
+    log_run(
+        EXPERIMENT_NAME, run_name="comparison_forecast", params=params, metrics=metrics,
+        artifacts=[os.path.join(OUTPUTS_DIR, "model_comparison.csv")],
+        tags={"data_version": data_version, "winner": run_info["winner"], "model_family": "comparison",
+              "project": "sales_demand_forecasting"},
+        log_model=log_model,
+    )
+
 
 if __name__ == "__main__":
-    main()
+    _run_info = main()
+    try:
+        log_to_mlflow(_run_info)
+    except Exception as e:  # tracking must never fail the forecasting task
+        print(f"WARNING [mlflow]: tracking skipped ({type(e).__name__}: {e}); forecast outputs are unaffected.",
+              flush=True)

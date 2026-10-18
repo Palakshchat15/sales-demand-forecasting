@@ -11,9 +11,15 @@ Reads warehouse.mart_category_daily_sales (produced by dbt). Per category:
 Also writes a PNG per category to outputs/forecast_plots/ and
 data/processed/forecast_vs_actual.csv (recent actuals, holdout predictions and
 forward forecast, long format) for the Excel/Tableau dashboards.
+
+Optional MLflow tracking (log_to_mlflow, after all outputs are written; logging only):
+settings, per-category metrics, plots/CSVs and each category's refit model, registered as
+'sales-prophet-<category>'. Skipped with a warning if MLFLOW_TRACKING_URI is unset or the
+server is unreachable.
 """
 
 import os
+import re
 import warnings
 
 import numpy as np
@@ -54,6 +60,9 @@ SERIES_FORWARD = "Forecast"  # next 90 days, from the model refit on all data
 # Christmas rush, back-to-school Sundays...), which handed Prophet the answer.
 # forecast_compare.py gives LightGBM the same calendar as a feature.
 HOLIDAY_COUNTRY = "US"
+
+# Refit (full-history) Prophet model per category; read only by log_to_mlflow().
+FITTED_MODELS = {}
 
 
 def mape(actual, pred):
@@ -133,6 +142,7 @@ def run_for_category(cat_df, category):
     # 2. Forward forecast: refit on the full history so the latest 90 days inform it.
     full_model = make_model(cps)
     full_model.fit(cat_df[["ds", "y"]])
+    FITTED_MODELS[category] = full_model  # kept only for the optional MLflow logging after main()
     max_horizon = max(FORWARD_HORIZONS)
     np.random.seed(RNG_SEED)
     sub = full_model.predict(full_model.make_future_dataframe(periods=max_horizon, include_history=False))
@@ -230,6 +240,71 @@ def main():
     print(metrics_df.to_string(index=False))
     print(f"\nOverall mean MAPE: {metrics_df['mape'].mean():.2f}%")
 
+    # For the optional MLflow logging below (read-only; nothing above depends on it)
+    return {"rows": int(len(df)), "first_ds": str(df["ds"].min().date()), "last_ds": str(df["ds"].max().date()),
+            "categories": categories, "outputs_dir": outputs_dir, "dash_path": dash_path}
+
+
+# ---------- Optional MLflow experiment tracking (logging only) ----------
+EXPERIMENT_NAME = "sales_demand_forecasting"
+REGISTERED_MODEL_PREFIX = "sales-prophet-"  # one registered model per category
+
+
+def model_slug(category):
+    return re.sub(r"[^0-9a-z]+", "-", category.lower().replace("&", "and")).strip("-")
+
+
+def log_to_mlflow(run_info):
+    """Runs after main() has written every output: logs the Prophet settings, each category's
+    chosen changepoint_prior_scale, holdout MAPE/RMSE and CV MAPE per grid value, the mean
+    MAPE across categories, the plots/CSVs as artifacts, and each category's refit model
+    (registered as sales-prophet-<category>). Guarded in mlflow_tracking: no server -> warning."""
+    from mlflow_tracking import log_run, safe_key
+
+    holdout = pd.read_csv(os.path.join(run_info["outputs_dir"], "prophet_holdout_metrics.csv"))
+    tuning = pd.read_csv(os.path.join(run_info["outputs_dir"], "prophet_tuning.csv"))
+    metrics = {"mean_mape": float(holdout["mape"].mean()), "mean_rmse": float(holdout["rmse"].mean())}
+    for _, r in holdout.iterrows():
+        metrics[safe_key(f"{r['product_category']}.mape")] = float(r["mape"])
+        metrics[safe_key(f"{r['product_category']}.rmse")] = float(r["rmse"])
+    params = {
+        "holdout_days": HOLDOUT_DAYS, "rng_seed": RNG_SEED, "forward_horizons": FORWARD_HORIZONS,
+        "changepoint_prior_grid": CHANGEPOINT_PRIOR_GRID, "cv_initial": CV_INITIAL, "cv_period": CV_PERIOD,
+        "holiday_country": HOLIDAY_COUNTRY, "seasonality_mode": "multiplicative",
+        "weekly_seasonality": True, "yearly_seasonality": True, "daily_seasonality": False,
+        "monthly_seasonality": "period=30.5, fourier_order=5",
+    }
+    for _, r in tuning.iterrows():
+        params[f"{r['product_category']}.changepoint_prior_scale"] = r["changepoint_prior_scale"]
+        for col in tuning.columns:
+            if col.startswith("cv_mape_cps_"):
+                metrics[safe_key(f"{r['product_category']}.{col}")] = float(r[col])
+    data_version = (f"warehouse.mart_category_daily_sales: {run_info['rows']} rows, "
+                    f"{run_info['first_ds']} .. {run_info['last_ds']}, {len(run_info['categories'])} categories")
+
+    def log_model(mlflow):
+        import prophet
+        import mlflow.prophet
+        for category, model in FITTED_MODELS.items():
+            slug = model_slug(category)
+            mlflow.prophet.log_model(model, artifact_path=f"prophet_{slug}",
+                                     registered_model_name=f"{REGISTERED_MODEL_PREFIX}{slug}",
+                                     pip_requirements=[f"prophet=={prophet.__version__}"])
+
+    log_run(
+        EXPERIMENT_NAME, run_name="prophet_forecast", params=params, metrics=metrics,
+        artifacts=[os.path.join(run_info["outputs_dir"], "prophet_holdout_metrics.csv"),
+                   os.path.join(run_info["outputs_dir"], "prophet_tuning.csv"),
+                   OUTPUT_DIR, run_info["dash_path"]],
+        tags={"data_version": data_version, "model_family": "prophet", "project": "sales_demand_forecasting"},
+        log_model=log_model,
+    )
+
 
 if __name__ == "__main__":
-    main()
+    _run_info = main()
+    try:
+        log_to_mlflow(_run_info)
+    except Exception as e:  # tracking must never fail the forecasting task
+        print(f"WARNING [mlflow]: tracking skipped ({type(e).__name__}: {e}); forecast outputs are unaffected.",
+              flush=True)
