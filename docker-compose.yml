@@ -44,6 +44,11 @@ x-airflow-common: &airflow-common
   user: "0:0"
   extra_hosts:
     - "host.docker.internal:host-gateway"
+    # Fixed IPs (see networks: at the end): resolve without Docker's embedded DNS, which failed intermittently
+    - "postgres:172.28.0.10"
+    - "kafka:172.28.0.11"
+    - "spark-master:172.28.0.12"
+    - "mlflow:172.28.0.13"
   depends_on:
     postgres:
       condition: service_healthy
@@ -67,6 +72,9 @@ services:
       retries: 10
     command: >
       postgres -c max_connections=200
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
 
   postgres-init-airflow-db:
     image: postgres:15
@@ -104,6 +112,9 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      default:
+        ipv4_address: 172.28.0.11
     healthcheck:
       test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
       interval: 10s
@@ -113,7 +124,16 @@ services:
   spark-master:
     image: apache/spark:3.5.9-scala2.12-java11-python3-r-ubuntu
     container_name: sales_spark_master
+    # The driver advertises this hostname to the executor; with the fixed IP and extra_hosts below,
+    # neither side needs Docker's DNS.
+    hostname: spark-master
     user: root
+    networks:
+      default:
+        ipv4_address: 172.28.0.12
+    extra_hosts:
+      - "postgres:172.28.0.10"
+      - "spark-master:172.28.0.12"
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -125,6 +145,11 @@ services:
     volumes:
       - ./spark:/opt/spark_jobs
       - ./spark/jars:/opt/spark/extra-jars
+      # Delta Lake tables (bronze/silver/gold); the same host folder on master (driver: commits
+      # the _delta_log) and worker (executor: writes the Parquet files). Gitignored.
+      - ./data/lakehouse:/opt/lakehouse
+      # Lakehouse parity / demo reports (written by the driver only)
+      - ./results:/opt/results
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080 || exit 1"]
       interval: 10s
@@ -135,6 +160,9 @@ services:
     image: apache/spark:3.5.9-scala2.12-java11-python3-r-ubuntu
     container_name: sales_spark_worker
     user: root
+    extra_hosts:
+      - "postgres:172.28.0.10"
+      - "spark-master:172.28.0.12"
     depends_on:
       - spark-master
     entrypoint: ["/bin/bash", "-c"]
@@ -145,6 +173,7 @@ services:
     volumes:
       - ./spark:/opt/spark_jobs
       - ./spark/jars:/opt/spark/extra-jars
+      - ./data/lakehouse:/opt/lakehouse
 
   # MLflow tracking server + model registry (logging only; UI http://localhost:5003).
   # SQLite metadata store and artifact store both on the mlflow_data volume; clients upload
@@ -161,6 +190,9 @@ services:
     volumes:
       - mlflow_data:/mlflow
     mem_limit: 512m
+    networks:
+      default:
+        ipv4_address: 172.28.0.13
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
       interval: 15s
@@ -204,3 +236,10 @@ services:
 volumes:
   pg_data:
   mlflow_data:
+
+# Fixed subnet so postgres / kafka / spark-master / mlflow keep the IPs used in extra_hosts above.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

@@ -94,7 +94,10 @@ sales_forecast_project/
 │   └── consumer.py
 ├── spark/
 │   ├── aggregate_sales.py
-│   └── jars/postgresql-42.7.3.jar
+│   ├── get_delta_jars.sh  (downloads the 2 Delta jars, SHA-1 checked)
+│   ├── lakehouse/  (Delta Lake: build_lakehouse.py, lakehouse_parity.py, lakehouse_demo.py,
+│   │                lakehouse_common.py, lakehouse_logic.py; section 14)
+│   └── jars/  (postgresql-42.7.3.jar; delta-spark_2.12-3.2.1.jar, delta-storage-3.2.1.jar gitignored)
 ├── airflow/
 │   ├── Dockerfile
 │   └── dags/sales_pipeline_dag.py
@@ -127,6 +130,9 @@ sales_forecast_project/
 │   ├── Sales_Forecast_Dashboard.xlsx
 │   ├── demand_planning_report.pdf
 │   └── demand_planning_report.txt
+├── data/lakehouse/  (Delta tables bronze/silver/gold, gitignored; section 14)
+├── results/  (lakehouse_parity.csv, lakehouse_delta_demo.txt, lakehouse_history.csv)
+├── tests/test_lakehouse_logic.py
 ├── postgres_init/01_schemas.sql
 ├── docker-compose.yml
 ├── requirements-airflow.txt
@@ -682,3 +688,87 @@ docker compose exec airflow-webserver airflow dags trigger sales_pipeline_dag
 | Peak memory of the `mlflow` container | not measured (the 2026-10-18 run did not record container memory) |
 
 Details, risks and the exact verification steps: `UPGRADE_NOTES.md`.
+
+## 14. Lakehouse (Delta Lake)
+
+Added 2026-10-24. **The lakehouse was verified on 2026-10-24 by running its jobs directly with `spark-submit` on a minimal stack (Postgres + Spark master/worker only).** The two DAG tasks (`spark_lakehouse_build`, `lakehouse_parity`; 13 tasks in total) are wired in, but a full 13-task DAG run did not complete on this 8 GB laptop. Five attempts were made. The memory-starved host made Docker's DNS fail (`UnknownHostException: postgres`) inside the *existing* `spark_aggregate_sales` task, then hung Docker itself, so the lakehouse tasks never started in a DAG run. The lakehouse only reads Postgres: `staging.sales_rollups`, the dbt models, the forecasts and every number above are unchanged.
+tables, so `staging.sales_rollups`, the dbt models, the forecasts and every number above are
+unchanged.
+
+Open-source Delta Lake 3.2.1 (`delta-spark_2.12`, built for Spark 3.5, Scala 2.12 like the
+`apache/spark:3.5.9-scala2.12` image) on the existing Spark cluster, with the medallion layout:
+
+| Layer | Delta table (`data/lakehouse/...`) | How it is written |
+|---|---|---|
+| Bronze | `bronze/sales_events` | Copy of `raw.sales_events` (the Kafka sink) with `_bronze_batch_id` (Airflow run id), `_bronze_loaded_at`, `_source`. Only rows not yet in bronze (by `id`, `ingested_at`) are appended, so a re-run appends 0 rows. Table property `delta.appendOnly = true`: UPDATE/DELETE are refused. |
+| Silver | `silver/sales_events` | Typed, trimmed, filtered (`units_sold >= 0` etc.), one row per natural key `(event_date, product_category, store_region)`, keeping the latest `ingested_at` (the rule of dbt's `stg_sales_events`). Maintained with `MERGE INTO`: new keys inserted, a key updated only if the incoming row is strictly newer, so re-running the same data changes 0 rows. Schema enforced: explicit DDL, `NOT NULL` columns, `CHECK (units_sold >= 0)`, `CHECK (revenue >= 0)`. |
+| Gold | `gold/daily_category_rollups` | Daily category totals, 7/30-day rolling averages and week-over-week growth: the logic of `spark/aggregate_sales.py`, run on silver, cast to the column types of `staging.sales_rollups`. Partitioned by `product_category` (the models are fitted one category at a time, so reads prune to one partition), one file per partition, rebuilt with an atomic overwrite (rolling windows depend on every earlier day). |
+
+- **Where it runs:** two new DAG tasks, `spark_lakehouse_build` then `lakehouse_parity`, on a
+  branch after `comparison_forecast` (13 tasks in total). They `spark-submit` into
+  `sales_spark_master` like `spark_aggregate_sales`, with the Delta SQL extension and catalog,
+  driver 768 MB, one 1 GB executor. They are kept off the critical path on purpose: nothing
+  downstream reads the lakehouse, a lakehouse failure cannot hold back the forecasts, and the
+  Spark jobs never run at the same time as Prophet/LightGBM inside the 4 GB Docker VM. A
+  failed lakehouse task does mark the DAG run as failed.
+- **Storage:** `data/lakehouse/` on the host (gitignored), bind-mounted at `/opt/lakehouse` in
+  both Spark containers, so the driver (commits to `_delta_log/`) and the executor (writes the
+  Parquet files) share it, and the transaction log can be read on the host.
+- **Network:** `docker-compose.yml` now gives `postgres`, `kafka`, `spark-master` and `mlflow`
+  fixed IPs on a fixed subnet (172.28.0.0/16), with `extra_hosts` entries in the Airflow and Spark
+  containers, so these names resolve without Docker's embedded DNS, which failed intermittently on
+  this laptop.
+- **Without Airflow** (what was verified): `bash _work_in_progress/upgrades/run_sales_delta_min.sh`
+  starts only `postgres spark-master spark-worker` and runs the jobs with the same `spark-submit`
+  settings as the DAG tasks.
+- **Parity** (`lakehouse_parity.py` -> `results/lakehouse_parity.csv`): bronze holds every
+  `raw.sales_events` row; silver has one row per raw natural key; gold vs
+  `staging.sales_rollups`: row count, distinct keys, categories, date range, column sums, null
+  growth rates, and a full outer join on `(event_date, product_category)` (rows on one side
+  only, rows whose values differ, maximum difference). Units and revenue must match exactly;
+  rolling averages within 0.0001 and growth within 0.000001 (Postgres rounds the same doubles
+  to `NUMERIC(14,4)` / `NUMERIC(10,6)`; the two roundings can differ by one unit in the last
+  place). The task fails on any mismatch.
+- **Delta feature demo** (`lakehouse_demo.py` -> `results/lakehouse_delta_demo.txt` and
+  `results/lakehouse_history.csv`, run by hand, not in the DAG): `DESCRIBE DETAIL` /
+  `DESCRIBE HISTORY`; a second ingest + MERGE (must append/insert/update 0 rows) and a gold
+  rebuild (new version, 0 rows differ); time travel (`versionAsOf` and `VERSION AS OF`: silver
+  before and after its first MERGE); schema enforcement (an extra column, `units_sold = -1`,
+  a NULL `store_region` and a DELETE on bronze must all be rejected with no new version);
+  `OPTIMIZE` (silver compaction, gold `ZORDER BY (event_date)`, data unchanged); `VACUUM ...
+  RETAIN 168 HOURS DRY RUN`. Retention below Delta's 7-day default is refused: it would delete
+  files that time travel to older versions still needs.
+
+```bash
+bash spark/get_delta_jars.sh                       # once: 2 jars into spark/jars/ (SHA-1 checked)
+docker compose up -d                               # as in section 4; recreates the Spark containers with the new mounts
+docker compose exec airflow-webserver airflow dags trigger sales_pipeline_dag
+# Delta demo and parity by hand (from the scheduler, which holds the DB settings):
+docker compose exec airflow-scheduler bash -c 'docker exec -e POSTGRES_HOST=postgres -e POSTGRES_PORT=5432   -e POSTGRES_USER=$POSTGRES_USER -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD -e POSTGRES_DB=$POSTGRES_DB sales_spark_master   /opt/spark/bin/spark-submit --master spark://spark-master:7077 --driver-memory 768m --executor-memory 1g   --total-executor-cores 2 --jars /opt/spark/extra-jars/postgresql-42.7.3.jar,/opt/spark/extra-jars/delta-spark_2.12-3.2.1.jar,/opt/spark/extra-jars/delta-storage-3.2.1.jar   /opt/spark_jobs/lakehouse/lakehouse_demo.py'          # then the same with lakehouse_parity.py
+python -m pytest tests -q                          # unit tests of the pure-Python helpers (no Spark needed)
+```
+
+After `docker compose down -v` (a fresh Postgres) also delete `data/lakehouse/`, otherwise
+bronze and silver still hold the old database's events and parity fails until the new
+database has all 43,823 rows again.
+
+Verification run (2026-10-24, `_work_in_progress/upgrades/run_sales_delta_min.sh`): `build_lakehouse.py` ->
+`lakehouse_parity.py` -> `lakehouse_demo.py` -> `build_lakehouse.py` again -> `lakehouse_parity.py` again, all exit 0.
+
+| Check | Result |
+|---|---|
+| Full 13-task DAG run with `spark_lakehouse_build` and `lakehouse_parity` | not completed on the 8 GB laptop (see above); the DAG parses with 13 tasks and no import errors |
+| First build | bronze: 43,823 rows appended (version 1, `delta.appendOnly`); silver: MERGE inserted 43,823 (version 3, after CREATE and 2 ADD CONSTRAINT); gold: 8,768 rows, 8 partitions (version 0); 59 s |
+| Parity gold vs `staging.sales_rollups` (`results/lakehouse_parity.csv`) | **26/26 PASS**, before and after the demo and the re-run: 8,768 = 8,768 rows and keys, 8 categories, 2023-01-01 .. 2025-12-31, units 5,258,922 = 5,258,922, revenue 249,071,160.20 = 249,071,160.20; 0 rows on one side only, 0 rows with a different value, maximum difference 0 in every column (the rounding tolerance was not needed); bronze holds all raw rows, silver 43,823 = 43,823 natural keys |
+| Re-run: bronze / MERGE | demo and second build: bronze appended 0 rows (no new version); silver MERGE inserted 0, updated 0, deleted 0 (versions 4 and 6), still 43,823 rows |
+| Gold rebuild | overwrite version 0 -> 1: 0 rows differ (ignoring `_gold_built_at`) |
+| Time travel (silver) | `versionAsOf 2` (before the first MERGE): 0 rows; `versionAsOf 3` and SQL `VERSION AS OF 3`: 43,823 rows |
+| Schema enforcement and constraints | 4/4 bad writes rejected, version unchanged: extra column (schema mismatch), `units_sold = -1` (CHECK), `store_region = NULL` (NOT NULL), DELETE on bronze (`DELTA_CANNOT_MODIFY_APPEND_ONLY`) |
+| OPTIMIZE / ZORDER | silver: 2 files -> 1 (version 5); gold `ZORDER BY (event_date)`: 8 -> 8 files, rewritten (version 2); data unchanged (0 rows differ) |
+| VACUUM dry run at 168 h | 0 files listed for each table (all replaced files are younger than 7 days, so time travel still works) |
+| Final versions | bronze 1, silver 6, gold 3; 4.2 MB on disk |
+| Postgres tables and `outputs/` unchanged | yes: identical row counts and md5 fingerprints before/after for `raw.sales_events`, `staging.sales_rollups`, the 3 marts and `warehouse.demand_forecast`; `outputs/` hashes identical |
+| Run time; memory | build 49-59 s, parity 36-43 s, demo 278 s (it includes the rejected writes, which Spark retries); peak `docker stats` total 1.9 GB (Spark master 1.0 GB, worker 0.9 GB) |
+| Unit tests | 23/23 pass (`python -m pytest tests -q`) |
+
+Details, risks and the verification steps: `UPGRADE_NOTES.md`.

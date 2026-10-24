@@ -1,0 +1,12 @@
+table,version,timestamp,operation,operation_metrics
+bronze,1,2026-10-24 15:52:33.052000,WRITE,numFiles=1;numOutputBytes=565733;numOutputRows=43823
+bronze,0,2026-10-24 15:52:06.326000,CREATE TABLE,
+silver,5,2026-10-24 15:54:51.985000,OPTIMIZE,maxFileSize=597863;minFileSize=597863;numAddedBytes=597863;numAddedFiles=1;numDeletionVectorsRemoved=0;numRemovedBytes=625399;numRemovedFiles=2;p25FileSize=597863;p50FileSize=597863;p75FileSize=597863
+silver,4,2026-10-24 15:54:18.553000,MERGE,executionTimeMs=5415;numOutputRows=43823;numSourceRows=43823;numTargetBytesAdded=625399;numTargetBytesRemoved=565129;numTargetChangeFilesAdded=0;numTargetDeletionVectorsAdded=0;numTargetDeletionVectorsRemoved=0;numTargetDeletionVectorsUpdated=0;numTargetFilesAdded=2;numTargetFilesRemoved=1;numTargetRowsCopied=43823;numTargetRowsDeleted=0;numTargetRowsInserted=0;numTargetRowsMatchedDeleted=0;numTargetRowsMatchedUpdated=0;numTargetRowsNotMatchedBySourceDeleted=0;numTargetRowsNotMatchedBySourceUpdated=0;numTargetRowsUpdated=0;rewriteTimeMs=1793;scanTimeMs=1650
+silver,3,2026-10-24 15:52:43.268000,MERGE,executionTimeMs=6164;numOutputRows=43823;numSourceRows=43823;numTargetBytesAdded=565129;numTargetBytesRemoved=0;numTargetChangeFilesAdded=0;numTargetDeletionVectorsAdded=0;numTargetDeletionVectorsRemoved=0;numTargetDeletionVectorsUpdated=0;numTargetFilesAdded=1;numTargetFilesRemoved=0;numTargetRowsCopied=0;numTargetRowsDeleted=0;numTargetRowsInserted=43823;numTargetRowsMatchedDeleted=0;numTargetRowsMatchedUpdated=0;numTargetRowsNotMatchedBySourceDeleted=0;numTargetRowsNotMatchedBySourceUpdated=0;numTargetRowsUpdated=0;rewriteTimeMs=685;scanTimeMs=3524
+silver,2,2026-10-24 15:52:24.737000,ADD CONSTRAINT,
+silver,1,2026-10-24 15:52:21.239000,ADD CONSTRAINT,
+silver,0,2026-10-24 15:52:10.323000,CREATE TABLE,
+gold,2,2026-10-24 15:55:02.522000,OPTIMIZE,maxFileSize=33090;minFileSize=30735;numAddedBytes=258927;numAddedFiles=8;numDeletionVectorsRemoved=0;numRemovedBytes=258927;numRemovedFiles=8;p25FileSize=32274;p50FileSize=32758;p75FileSize=32926
+gold,1,2026-10-24 15:54:25.943000,WRITE,numFiles=8;numOutputBytes=258927;numOutputRows=8768
+gold,0,2026-10-24 15:52:49.521000,WRITE,numFiles=8;numOutputBytes=258927;numOutputRows=8768

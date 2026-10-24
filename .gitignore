@@ -23,3 +23,9 @@ logs/
 tableau/~*
 *.bak*
 __pycache__/
+
+# Delta Lake lakehouse (2026-10-24): the Delta tables are rebuilt by the DAG; the Delta jars
+# are downloaded by spark/get_delta_jars.sh (SHA-1 checked). results/ stays tracked.
+data/lakehouse/
+spark/jars/delta-*.jar
+spark/jars/*.part

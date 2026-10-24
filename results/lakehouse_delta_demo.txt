@@ -1,0 +1,65 @@
+Delta Lake feature demo, lakehouse /opt/lakehouse, Spark 3.5.9, run minimal_20261024_212155_demo
+
+== 1. Tables
+bronze /opt/lakehouse/bronze/sales_events
+       version 1, files 1, bytes 565733, partitioned by -, protocol r1/w2
+       delta.appendOnly = true
+silver /opt/lakehouse/silver/sales_events
+       version 3, files 1, bytes 565129, partitioned by -, protocol r1/w3
+       delta.constraints.revenue_non_negative = revenue >= 0
+       delta.constraints.units_sold_non_negative = units_sold >= 0
+gold   /opt/lakehouse/gold/daily_category_rollups
+       version 0, files 8, bytes 258927, partitioned by ['product_category'], protocol r1/w2
+
+== 2. Idempotent re-run (same input, second pass)
+CHECK bronze_reingest_appends_0_rows: PASS - appended 0 rows; version 1 -> 1
+CHECK silver_merge_rerun_changes_0_rows: PASS - MERGE version 4: source rows 43823, inserted 0, updated 0, deleted 0; rows 43823 -> 43823
+CHECK gold_rebuild_is_deterministic: PASS - overwrite version 0 -> 1 (8768 rows); rows that differ between the two versions (ignoring _gold_built_at): 0
+
+== 3. Time travel
+silver versions with MERGE: [3, 4]
+silver versionAsOf 2 (before the first MERGE): 0 rows
+silver versionAsOf 3 (first MERGE): 43823 rows; SQL 'VERSION AS OF 3': 43823 rows
+silver now (version 4): 43823 rows
+CHECK silver_time_travel: PASS - 0 rows before the first MERGE, 43823 after it
+bronze appends (version, rows in table after it): [(1, 43823)]
+
+== 4. Schema enforcement and constraints
+CHECK silver_rejects_unknown_column: PASS - append with an extra column (no mergeSchema): rejected, AnalysisException: [_LEGACY_ERROR_TEMP_DELTA_0007] A schema mismatch detected when writing to the Delta table (Table ID: 49235b31-ba0c-4d81-9e04-fbeb8052a721).; version 4 -> 4
+CHECK silver_check_units_sold_non_negative: PASS - append with units_sold = -1: rejected, Py4JJavaError: An error occurred while calling o436.save.; version 4 -> 4
+CHECK silver_not_null_store_region: PASS - append with store_region = NULL: rejected, Py4JJavaError: An error occurred while calling o451.save.; version 4 -> 4
+CHECK bronze_is_append_only: PASS - DELETE on bronze (delta.appendOnly = true): rejected, UnsupportedOperationException: [DELTA_CANNOT_MODIFY_APPEND_ONLY] This table is configured to only allow appends. If you would like to permit updates or deletes, use 'ALTER TABLE null SET TBLPROPERTIES (delta.appendOnly=false)'.; version 1 -> 1
+
+== 5. OPTIMIZE
+CHECK silver_optimize_keeps_data: PASS - OPTIMIZE: version 4 -> 5, files 2 -> 1, rows that differ: 0
+CHECK gold_optimize_keeps_data: PASS - OPTIMIZE ZORDER BY (event_date): version 1 -> 2, files 8 -> 8, rows that differ: 0
+
+== 6. VACUUM (dry run)
+bronze files older than 168 h and no longer referenced: 0 (dry run, nothing deleted)
+silver files older than 168 h and no longer referenced: 0 (dry run, nothing deleted)
+gold   files older than 168 h and no longer referenced: 0 (dry run, nothing deleted)
+Files replaced by MERGE/overwrite/OPTIMIZE stay on disk for 7 days so the older versions above remain readable; VACUUM after that only removes files no current version uses.
+
+== History (newest first, last 12 commits per table)
+-- bronze
+version  timestamp                   operation     metrics                        
+-------  --------------------------  ------------  -------------------------------
+1        2026-10-24 15:52:33.052000  WRITE         numOutputRows=43823, numFiles=1
+0        2026-10-24 15:52:06.326000  CREATE TABLE                                 
+-- silver
+version  timestamp                   operation       metrics                                                                 
+-------  --------------------------  --------------  ------------------------------------------------------------------------
+5        2026-10-24 15:54:51.985000  OPTIMIZE        numAddedFiles=1, numRemovedFiles=2                                      
+4        2026-10-24 15:54:18.553000  MERGE           numOutputRows=43823, numTargetRowsInserted=0, numTargetRowsUpdated=0    
+3        2026-10-24 15:52:43.268000  MERGE           numOutputRows=43823, numTargetRowsInserted=43823, numTargetRowsUpdated=0
+2        2026-10-24 15:52:24.737000  ADD CONSTRAINT                                                                          
+1        2026-10-24 15:52:21.239000  ADD CONSTRAINT                                                                          
+0        2026-10-24 15:52:10.323000  CREATE TABLE                                                                            
+-- gold
+version  timestamp                   operation  metrics                           
+-------  --------------------------  ---------  ----------------------------------
+2        2026-10-24 15:55:02.522000  OPTIMIZE   numAddedFiles=8, numRemovedFiles=8
+1        2026-10-24 15:54:25.943000  WRITE      numOutputRows=8768, numFiles=8    
+0        2026-10-24 15:52:49.521000  WRITE      numOutputRows=8768, numFiles=8    
+
+Summary: 10/10 checks PASS

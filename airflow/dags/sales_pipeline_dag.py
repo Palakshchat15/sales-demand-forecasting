@@ -4,7 +4,14 @@ Sales Demand Forecasting pipeline DAG.
 Orchestrates: bounded Kafka replay (producer+consumer) -> Great Expectations
 validation on raw.sales_events -> Spark aggregation (spark-submit) ->
 dbt run -> dbt test -> Prophet forecasting -> comparison model, then in
-parallel: GenAI report generation, and dashboard export -> Excel + Tableau.
+parallel: GenAI report generation, dashboard export -> Excel + Tableau, and
+the Delta Lake lakehouse build (bronze/silver/gold) -> gold vs Postgres parity.
+
+The lakehouse branch only reads Postgres and writes Delta tables under
+data/lakehouse/, so nothing downstream of Postgres depends on it. It runs after
+the forecasting tasks rather than next to spark_aggregate_sales so that its
+Spark driver and executor never overlap with Prophet/LightGBM in the 4 GB
+Docker VM, and a lakehouse failure cannot hold back the forecasts.
 
 Reconciling streaming vs batch scheduling:
 Kafka is normally an always-on stream, but Airflow schedules bounded batch
@@ -36,6 +43,28 @@ default_args = {
     "retries": 2,
     "retry_delay": timedelta(minutes=2),
 }
+
+
+# Delta Lake jobs: same container and JDBC env as spark_aggregate_sales, plus the two Delta jars
+# (spark/get_delta_jars.sh). Small fixed memory: driver 768 MB, one 1 GB executor, 2 cores.
+LAKEHOUSE_JARS = ",".join(
+    f"/opt/spark/extra-jars/{jar}"
+    for jar in ("postgresql-42.7.3.jar", "delta-spark_2.12-3.2.1.jar", "delta-storage-3.2.1.jar")
+)
+
+
+def lakehouse_submit(script):
+    return (
+        "docker exec "
+        "-e POSTGRES_HOST=postgres -e POSTGRES_PORT=5432 "
+        "-e POSTGRES_USER=$POSTGRES_USER -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD -e POSTGRES_DB=$POSTGRES_DB "
+        "-e LAKEHOUSE_RUN_ID=$AIRFLOW_CTX_DAG_RUN_ID "
+        "sales_spark_master "
+        "/opt/spark/bin/spark-submit --master spark://spark-master:7077 "
+        "--driver-memory 768m --executor-memory 1g --total-executor-cores 2 "
+        f"--jars {LAKEHOUSE_JARS} "
+        f"/opt/spark_jobs/lakehouse/{script}"
+    )
 
 
 def on_failure_callback(context):
@@ -179,6 +208,22 @@ with DAG(
         bash_command=f"cd {PROJECT_ROOT}/src/dashboards && python build_tableau_workbook.py",
     )
 
+    # Delta Lake lakehouse: bronze (append-only copy of raw.sales_events) -> silver (MERGE on the
+    # natural key) -> gold (daily category rollups), then gold vs staging.sales_rollups parity.
+    spark_lakehouse_build = BashOperator(
+        task_id="spark_lakehouse_build",
+        bash_command=lakehouse_submit("build_lakehouse.py"),
+        env=os.environ,
+    )
+
+    lakehouse_parity = BashOperator(
+        task_id="lakehouse_parity",
+        bash_command=lakehouse_submit("lakehouse_parity.py"),
+        env=os.environ,
+        retries=0,  # deterministic: a mismatch will not fix itself on retry
+    )
+
     kafka_replay >> ge_validate >> spark_aggregate >> dbt_run >> dbt_test >> prophet_forecast >> comparison_forecast
     comparison_forecast >> genai_report
     comparison_forecast >> export_dashboard_data >> [build_excel_dashboard, build_tableau_workbook]
+    comparison_forecast >> spark_lakehouse_build >> lakehouse_parity
